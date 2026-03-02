@@ -18,6 +18,8 @@ public:
         // Internal accounting modified by new order 
         totalVolume_ += order->quantity_;
         orderCount_++;
+
+        order->parentLevel_ = this;
         
         if (!head_) // If linked-list is empty
         {
