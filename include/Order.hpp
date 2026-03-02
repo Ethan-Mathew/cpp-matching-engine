@@ -8,6 +8,7 @@ struct Order
     Price price_;
     Order* next_ = nullptr;
     Order* prev_ = nullptr;
+    PriceLevel* parentLevel_ = nullptr;
     Quantity quantity_;
     Side side_;
     TimeInForce tif_;
