@@ -101,6 +101,8 @@ public:
     [[nodiscard]] Price getPrice() const { return price_; }
     [[nodiscard]] uint64_t getTotalVolume() const { return totalVolume_; }
     [[nodiscard]] uint32_t getOrderCount() const { return orderCount_; }
+    [[nodiscard]] bool isEmpty() const { return orderCount_ == 0; }
+    
     [[nodiscard]] const Order* getHead() const { return head_; }
     [[nodiscard]] const Order* getTail() const { return tail_; }
 
