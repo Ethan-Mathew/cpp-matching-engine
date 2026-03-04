@@ -3,11 +3,20 @@
 #include "Order.hpp"
 #include "Types.hpp"
 
+#include <algorithm>
 #include <cstdint>
 
 class PriceLevel
 {
 public:
+    struct MatchResult
+    {
+        Quantity executedQuantity;
+        Order* filledOrderPtr  = nullptr;
+        OrderID filledOrderID;
+        bool orderFilled       = false;
+    };
+
     explicit PriceLevel(Price price)
         : price_{price}
     {
@@ -64,6 +73,29 @@ public:
 
         order->prev_ = nullptr;
         order->next_ = nullptr;
+    }
+
+    // Execute matches for the current price level given a quantity
+    MatchResult executeMatchStep(Quantity incomingQuantity)
+    {
+        Order* target = head_;
+        // Trade based on the first order in the price level queue
+        Quantity tradeableQuantity = std::min(incomingQuantity, head_->quantity_);
+        
+        target->quantity_ -= tradeableQuantity;
+        totalVolume_ -= tradeableQuantity;
+
+        MatchResult tradeResult{tradeableQuantity};
+
+        if (target->quantity_ == 0)
+        {
+            tradeResult.orderFilled = true;
+            tradeResult.filledOrderID = target->id_;
+            tradeResult.filledOrderPtr = target;
+            removeOrder(target);
+        }
+
+        return tradeResult;
     }
 
     [[nodiscard]] Price getPrice() const { return price_; }
