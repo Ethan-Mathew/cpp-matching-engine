@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <map>
+#include <stdexcept>
 #include <unordered_map>
 
 class OrderBook
@@ -24,7 +25,7 @@ public:
             delete level;
         }
 
-        for (auto [price, level] : askLevels_)
+        for (auto& [price, level] : askLevels_)
         {
             delete level;
         }
@@ -33,44 +34,107 @@ public:
     void addLimitOrder(OrderID id, Price price, Quantity qty, Side side, TimeInForce tif)
     {
         Order* newLimitOrder = pool_.allocate(id, price, qty, side, tif);
-        
-        auto [it, inserted] = orders_.emplace(id, newLimitOrder);
-        if (!inserted)
+
+        matchOrder(newLimitOrder);
+
+        // If the new order does not complete matching and is still alive
+        if (newLimitOrder->quantity_ > 0)
+        {
+            auto [it, inserted] = orders_.emplace(id, newLimitOrder);
+            if (!inserted)
+            {
+                pool_.deallocate(newLimitOrder);
+                return;
+            }
+
+            getOrCreateLevel(price, side)->addOrder(newLimitOrder);
+        }
+        else
         {
             pool_.deallocate(newLimitOrder);
-            return;
         }
-
-        getOrCreateLevel(price, side)->addOrder(newLimitOrder);
     }
 
-    //void matchOrder(Order* order)
+    void matchOrder(Order* newOrder)
+    {
+        // Buy orders deduct from ask side
+        if (newOrder->side_ == Side::Buy)
+        {
+            while (newOrder->quantity_ > 0 && !askLevels_.empty())
+            {
+                // Find the best price level
+                auto matchingLevelItr = askLevels_.begin();
+                PriceLevel* matchingLevel = matchingLevelItr->second;
+
+                // If we cannot find a suitable pricelevel for the incoming order
+                if (newOrder->price_ < matchingLevel->getPrice())
+                {
+                    break;
+                }
+                
+                // Execute the trade on the best matching price level
+                PriceLevel::MatchResult executionResult = matchingLevel->executeMatchStep(newOrder->quantity_);
+                newOrder->quantity_ -= executionResult.executedQuantity;
+
+                if (executionResult.orderFilled)
+                {
+                    orders_.erase(executionResult.filledOrderID);
+                    pool_.deallocate(executionResult.filledOrderPtr);
+                }
+                
+                if (matchingLevel->isEmpty())
+                {
+                    delete matchingLevel;
+                    askLevels_.erase(matchingLevelItr);
+                }
+            }
+        }
+        else
+        {
+            while (newOrder->quantity_ > 0 && !bidLevels_.empty())
+            {
+                auto matchingLevelItr = bidLevels_.begin();
+                PriceLevel* matchingLevel = matchingLevelItr->second;
+
+                // If we cannot find a suitable pricelevel for the incoming order
+                if (newOrder->price_ > matchingLevel->getPrice())
+                {
+                    break;
+                }
+                
+                // Execute the trade on the best matching price level
+                PriceLevel::MatchResult executionResult = matchingLevel->executeMatchStep(newOrder->quantity_);
+                newOrder->quantity_ -= executionResult.executedQuantity;
+
+                if (executionResult.orderFilled)
+                {
+                    orders_.erase(executionResult.filledOrderID);
+                    pool_.deallocate(executionResult.filledOrderPtr);
+                }
+                
+                if (matchingLevel->isEmpty())
+                {
+                    delete matchingLevel;
+                    bidLevels_.erase(matchingLevelItr);
+                }
+            }
+        }
+    }
 
     void cancelOrder(OrderID id)
     {
         auto orderIt = orders_.find(id);
+
+        // Don't do anything if order ID is invalid
         if (orderIt == orders_.end()) return;
 
         Order* order = orderIt->second;
         PriceLevel* level = nullptr;
 
-        // Explicitly find the level based on side
-        if (order->side_ == Side::Buy)
-        {
-            auto it = bidLevels_.find(order->price_);
-            if (it != bidLevels_.end()) level = it->second;
-        }
-        else
-        {
-            auto it = askLevels_.find(order->price_);
-            if (it != askLevels_.end()) level = it->second;
-        }
-
-        if (level)
-        {
-            level->removeOrder(order);
-        }
-
+        // Remove the order from its price level
+        order->parentLevel_->removeOrder(order);
+        
+        // Remove the order from the orders hashmap and free its memory
         orders_.erase(orderIt);
         pool_.deallocate(order);
     }
@@ -106,10 +170,16 @@ private:
                 return levelItr->second;
             }
         }
+
+        return nullptr;
     }
 
-    std::map<Price, PriceLevel*, std::greater<Price>> bidLevels_;
-    std::map<Price, PriceLevel*, std::less<Price>> askLevels_;
-    std::unordered_map<OrderID, Order*> orders_;
+    using BidLevels = std::map<Price, PriceLevel*, std::greater<Price>>;
+    using AskLevels = std::map<Price, PriceLevel*, std::less<Price>>;
+    using OrderMap = std::unordered_map<OrderID, Order*>;
+
     MemoryPool& pool_;
+    BidLevels bidLevels_;
+    AskLevels askLevels_;
+    OrderMap orders_;
 };
