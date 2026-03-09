@@ -6,6 +6,7 @@
 #include "Types.hpp"
 
 #include <functional>
+#include <iostream>
 #include <map>
 #include <stdexcept>
 #include <unordered_map>
@@ -76,6 +77,9 @@ public:
                 PriceLevel::MatchResult executionResult = matchingLevel->executeMatchStep(newOrder->quantity_);
                 newOrder->quantity_ -= executionResult.executedQuantity;
 
+                std::cout << "> TRADE EXECUTED: " << executionResult.executedQuantity 
+                          << " shares @ $" << matchingLevel->getPrice() << "\n";
+
                 if (executionResult.orderFilled)
                 {
                     orders_.erase(executionResult.filledOrderID);
@@ -105,6 +109,9 @@ public:
                 // Execute the trade on the best matching price level
                 PriceLevel::MatchResult executionResult = matchingLevel->executeMatchStep(newOrder->quantity_);
                 newOrder->quantity_ -= executionResult.executedQuantity;
+
+                std::cout << "> TRADE EXECUTED: " << executionResult.executedQuantity 
+                          << " shares @ $" << matchingLevel->getPrice() << "\n";
 
                 if (executionResult.orderFilled)
                 {
