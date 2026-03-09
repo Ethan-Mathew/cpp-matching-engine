@@ -2,6 +2,8 @@
 
 #include "Types.hpp"
 
+class PriceLevel;
+
 struct Order
 {
     OrderID id_;
