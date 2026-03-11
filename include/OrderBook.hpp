@@ -34,7 +34,23 @@ public:
 
     void addLimitOrder(OrderID id, Price price, Quantity qty, Side side, TimeInForce tif)
     {
-        Order* newLimitOrder = pool_.allocate(id, price, qty, side, tif);
+        // Verify order ID is not a duplicate
+        if (orders_.find(id) != orders_.end())
+        {
+            throw std::runtime_error("Duplicate order entered");
+        }
+
+        // Try to create the new order if memory is available
+        Order* newLimitOrder;
+        try
+        {
+            newLimitOrder = pool_.allocate(id, price, qty, side, tif);
+        }
+        catch(const std::exception&)
+        {
+            std::cerr << "Allocation failed for order " << id << '\n';
+            throw;
+        }
 
         matchOrder(newLimitOrder);
 
