@@ -2,7 +2,9 @@
 
 #include "Order.hpp"
 
+#include <cassert>
 #include <cstddef>
+#include <memory>
 #include <new>
 #include <stdexcept>
 #include <utility>
@@ -10,22 +12,30 @@
 class MemoryPool
 {
 public:
-    // Generates the overall memory pool, forming a linked list of 
-    explicit MemoryPool(size_t size)
+    // Generates the overall memory pool, forming a linked list of slots,
+    // carrying next pointers in raw, unconstructed memory
+    explicit MemoryPool(std::size_t size)
         : poolSize_{size}
     {
-        // Allocate per inputted size via placement new
-        pool_ = static_cast<Order*>(::operator new(size * sizeof(Order)));
+        // Allocate memory pool per inputted size
+        if (size == 0)
+        {
+            throw std::logic_error("Can't allocate pool of size 0");
+        }
 
-        for (size_t i = 0; i < poolSize_ - 1; ++i)
+        pool_ = static_cast<MemorySlot*>(::operator new(size * sizeof(MemorySlot)));
+
+        // Assign next pointers in raw memory
+        for (std::size_t i = 0; i < poolSize_ - 1; ++i)
         {
             pool_[i].next_ = &pool_[i + 1];
         }
 
-        pool_[poolSize_ - 1].next_ = nullptr; // Last order in pool points to null
-
+        // Assign first and last pointers
+        pool_[poolSize_ - 1].next_ = nullptr; // Last slot in pool points to null
         firstFree_ = pool_;
     }
+
 
     ~MemoryPool()
     {
@@ -35,9 +45,7 @@ public:
     MemoryPool(const MemoryPool&) = delete;
     MemoryPool& operator=(const MemoryPool&) = delete;
 
-    // Parameter pack grabs standard construction parameters for Order
-    template <typename... Args>
-    Order* allocate(Args&&... args)
+    Order* allocate(OrderID id, Price price, Quantity quantity, Side side, TimeInForce tif=TimeInForce::GTC)
     {
         if (!firstFree_)
         {
@@ -45,20 +53,36 @@ public:
         }
 
         // Shift the memory pool's first pointer
-        Order* order = firstFree_;
+        MemorySlot* firstSlot = firstFree_;
         firstFree_ = firstFree_->next_;
+        
+        Order* newOrder = new (static_cast<void*>(&firstSlot->buffer_)) Order(id, price, quantity, side, tif);
 
-        return new (order) Order(std::forward<Args>(args)...);
+        return newOrder;
     }
 
     void deallocate(Order* order)
     {
-        order->next_ = firstFree_;
-        firstFree_ = order;
+        // Destruct at the order's location
+        std::destroy_at(order);
+
+        // Order to return has the same base address as its parent slot
+        MemorySlot* returnedSlot = reinterpret_cast<MemorySlot*>(order);
+        static_assert(offsetof(MemorySlot, buffer_) == 0);
+
+        // Return slot to memory pool
+        returnedSlot->next_ = firstFree_;
+        firstFree_ = returnedSlot;
     }
 
 private:
-    size_t poolSize_;
-    Order* pool_;      // Raw pointer to first Order object in memory pool
-    Order* firstFree_; // Continuously managed pointer to first Order object in pool
+    struct MemorySlot
+    {
+        alignas(Order) std::byte buffer_[sizeof(Order)];
+        MemorySlot* next_;
+    };
+
+    std::size_t poolSize_;
+    MemorySlot* pool_;      // Raw pointer to first Order object in memory pool
+    MemorySlot* firstFree_; // Continuously managed pointer to first Order object in pool
 };
