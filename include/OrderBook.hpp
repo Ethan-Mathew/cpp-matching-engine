@@ -136,11 +136,26 @@ public:
         if (orderIt == orders_.end()) return;
 
         Order* order = orderIt->second;
-        PriceLevel* level = nullptr;
 
         // Remove the order from its price level
-        order->parentLevel_->removeOrder(order);
+        PriceLevel* level = order->parentLevel_;
+        level->removeOrder(order);
         
+        // If the price level reaches zero orders after order cancellation, remove that level
+        if (level->isEmpty())
+        {
+            if (order->side_ == Side::Buy)
+            {
+                bidLevels_.erase(order->price_);
+            }
+            else if (order->side_ == Side::Sell)
+            {
+                askLevels_.erase(order->price_);
+            }
+
+            delete order->parentLevel_;
+        }
+
         // Remove the order from the orders hashmap and free its memory
         orders_.erase(orderIt);
         pool_.deallocate(order);
